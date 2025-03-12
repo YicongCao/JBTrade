@@ -21,5 +21,7 @@ def read_config():
         raise ValueError("配置文件中缺少 'symbols' 或其格式不正确")
     if 'days' not in config or not isinstance(config['days'], int):
         raise ValueError("配置文件中缺少 'days' 或其格式不正确")
+    if 'openai_api_key' not in config or not isinstance(config['openai_api_key'], str):
+        raise ValueError("配置文件中缺少 'openai_api_key' 或其格式不正确")
     
     return config

@@ -1,4 +1,5 @@
 {
     "symbols": ["HK.00700", "HK.09868"], 
-    "days": 365
+    "days": 365,
+    "openai_api_key": "YOUR_OPENAI_API_KEY"
 }

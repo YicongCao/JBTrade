@@ -1,2 +1,4 @@
 futu_api==9.1.5108
+numpy==1.23.5
+openai==1.66.2
 pandas==2.0.1
