@@ -22,6 +22,14 @@ def suggest_trades(df):
     
     return buy_prices, sell_prices
 
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def moving_average_strategy(df, short_window=40, long_window=100):
     signals = pd.DataFrame(index=df.index)
     signals['signal'] = 0.0
@@ -46,6 +54,13 @@ def moving_average_strategy(df, short_window=40, long_window=100):
     high_volume = df['volume'] > volume_avg * 1.5
     low_volume = df['volume'] < volume_avg * 0.5
 
+    # 计算交易量指数和价格指数
+    volume_index = df['volume'] / volume_avg
+    price_index = df['close'] / signals['short_mavg']
+
+    # 计算 RSI
+    rsi = calculate_rsi(df)
+
     indicators = {
         'short_mavg': signals['short_mavg'].iloc[-1],
         'long_mavg': signals['long_mavg'].iloc[-1],
@@ -55,7 +70,10 @@ def moving_average_strategy(df, short_window=40, long_window=100):
         'overbought': overbought.iloc[-1],
         'oversold': oversold.iloc[-1],
         'high_volume': high_volume.iloc[-1],
-        'low_volume': low_volume.iloc[-1]
+        'low_volume': low_volume.iloc[-1],
+        'volume_index': volume_index.iloc[-1],
+        'price_index': price_index.iloc[-1],
+        'rsi': rsi.iloc[-1]
     }
 
     return indicators
@@ -83,8 +101,11 @@ def main():
             print(f"支撑线: {indicators['support_line']:.2f}")
             print(f"超买: {'是' if indicators['overbought'] else '否'}")
             print(f"超卖: {'是' if indicators['oversold'] else '否'}")
+            print(f"价格指数: {indicators['price_index']:.2f}")
             print(f"高交易量: {'是' if indicators['high_volume'] else '否'}")
             print(f"低交易量: {'是' if indicators['low_volume'] else '否'}")
+            print(f"交易量指数: {indicators['volume_index']:.2f}")
+            print(f"RSI: {indicators['rsi']:.2f}")
 
             # 分隔符
             print("=" * 20)
