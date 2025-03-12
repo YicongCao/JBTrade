@@ -28,7 +28,7 @@ def calculate_rsi(df, window=14):
     loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return rsi.round(2)
 
 def moving_average_strategy(df, short_window=40, long_window=100):
     signals = pd.DataFrame(index=df.index)
@@ -59,7 +59,7 @@ def moving_average_strategy(df, short_window=40, long_window=100):
     price_index = df['close'] / signals['short_mavg']
 
     # 计算 RSI
-    rsi = calculate_rsi(df)
+    rsi_values = [calculate_rsi(df, window=i).iloc[-1] for i in range(14, 6, -1)]
 
     indicators = {
         'short_mavg': signals['short_mavg'].iloc[-1],
@@ -73,42 +73,43 @@ def moving_average_strategy(df, short_window=40, long_window=100):
         'low_volume': low_volume.iloc[-1],
         'volume_index': volume_index.iloc[-1],
         'price_index': price_index.iloc[-1],
-        'rsi': rsi.iloc[-1]
+        'rsi': rsi_values
     }
 
     return indicators
+
+def print_stock_analysis(symbol, df, n=10):
+    output = []
+    output.append(f"股票: {symbol}")
+    # 使用移动平均线策略
+    indicators = moving_average_strategy(df)
+    output.append(f"关键指标:")
+    output.append(f"短期移动平均线: {indicators['short_mavg']:.2f}")
+    output.append(f"长期移动平均线: {indicators['long_mavg']:.2f}")
+    output.append(f"五日平均价格: {indicators['avg_price_5']:.2f}")
+    output.append(f"30日平均价格: {indicators['avg_price_30']:.2f}")
+    output.append(f"支撑线: {indicators['support_line']:.2f}")
+    output.append(f"价格指数: {indicators['price_index']:.2f} (>1.05 超买，<0.95 超卖)")
+    output.append(f"交易量指数: {indicators['volume_index']:.2f} (>1.5 高交易量，<0.5 低交易量)")
+    output.append(f"RSI (window从14日到7日): {indicators['rsi']}")
+
+    # 打印最近 n 天的csv 表格数据，带上表头
+    output.append(f"最近 {n} 天的数据:")
+    output.append(df.tail(n).to_string(index=False))
+
+    return "\n".join(output)
 
 def main():
     config = read_config()
     symbols = config['symbols']
     
-    for symbol in symbols:
+    for i, symbol in enumerate(symbols):
         df = read_stock_data(symbol)
         if df is not None:
-            # 使用简单策略
-            buy_prices, sell_prices = suggest_trades(df)
-            print(f"股票: {symbol}")
-            print(f"买入建议: {buy_prices}")
-            print(f"卖出建议: {sell_prices}")
-
-            # 使用移动平均线策略
-            indicators = moving_average_strategy(df)
-            print(f"关键指标:")
-            print(f"短期移动平均线: {indicators['short_mavg']:.2f}")
-            print(f"长期移动平均线: {indicators['long_mavg']:.2f}")
-            print(f"五日平均价格: {indicators['avg_price_5']:.2f}")
-            print(f"30日平均价格: {indicators['avg_price_30']:.2f}")
-            print(f"支撑线: {indicators['support_line']:.2f}")
-            print(f"超买: {'是' if indicators['overbought'] else '否'}")
-            print(f"超卖: {'是' if indicators['oversold'] else '否'}")
-            print(f"价格指数: {indicators['price_index']:.2f}")
-            print(f"高交易量: {'是' if indicators['high_volume'] else '否'}")
-            print(f"低交易量: {'是' if indicators['low_volume'] else '否'}")
-            print(f"交易量指数: {indicators['volume_index']:.2f}")
-            print(f"RSI: {indicators['rsi']:.2f}")
-
-            # 分隔符
-            print("=" * 20)
+            analysis_output = print_stock_analysis(symbol, df, n=10)
+            print(analysis_output)
+            if i < len(symbols) - 1:
+                print("=" * 20)
 
 if __name__ == "__main__":
     main()

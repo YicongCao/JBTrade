@@ -30,7 +30,12 @@ def fetch_k_line_data(symbol, start_date, end_date):
 
 def save_k_line_data(df, csv_filename):
     if os.path.exists(csv_filename):
-        df.to_csv(csv_filename, mode='a', header=False, index=False, columns=[
+        existing_df = pd.read_csv(csv_filename)
+        existing_df['time_key'] = pd.to_datetime(existing_df['time_key'])
+        
+        # 合并数据，去重
+        combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=['time_key'], keep='last')
+        combined_df.to_csv(csv_filename, index=False, columns=[
             'time_key', 'open', 'close', 'high', 'low', 'volume'
         ])
     else:
@@ -49,7 +54,14 @@ def fetch_and_save_k_line_data():
         last_date = get_last_date_from_csv(csv_filename)
         
         if last_date:
-            start_date = (pd.to_datetime(last_date) + timedelta(days=1)).strftime('%Y-%m-%d')
+            last_date_dt = pd.to_datetime(last_date)
+            today = datetime.now().date()
+            if last_date_dt.date() == today:
+                start_date = today.strftime('%Y-%m-%d')
+            elif last_date_dt.date() < today:
+                start_date = (last_date_dt + timedelta(days=1)).strftime('%Y-%m-%d')
+            else:
+                raise ValueError("last_date 不能晚于今天")
         else:
             start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         
