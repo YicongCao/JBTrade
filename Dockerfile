@@ -12,4 +12,4 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # 设置容器启动时的默认命令
-CMD ["python", "get_k_line_hist.py"]
+CMD ["python", "update_k_line_hist.py"]
