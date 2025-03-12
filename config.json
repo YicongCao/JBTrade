@@ -1,5 +1,6 @@
 {
     "symbols": ["HK.00700", "HK.09868"], 
     "days": 365,
-    "openai_api_key": "YOUR_OPENAI_API_KEY"
+    "openai_api_key": "YOUR_KEY",
+    "wxwork_webhook_key": "YOUR_KEY"
 }

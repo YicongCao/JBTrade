@@ -13,7 +13,7 @@ def get_deepseek_response(content, api_key):
     stream = client.chat.completions.create(
         model="deepseek-r1",
         messages=[
-            {"role": "system", "content": "你是一个经验丰富的恒生科技和纳斯达克投资者，请根据用户提供的股票分析内容，结合金融知识分析走势，并在结论部分最终给出不同仓位下包含买入卖出价格的每日交易建议。"},
+            {"role": "system", "content": "你是一个经验丰富的恒生科技和纳斯达克投资者，请根据用户提供的股票分析内容，结合金融知识分析走势，了解该股票代码对应公司的历史背景、发展阶段和行业特点，并在结论部分最终给出不同仓位下包含买入卖出价格的每日交易建议。"},
             {"role": "user", "content": content}
         ],
         stream=True
