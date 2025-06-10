@@ -13,6 +13,36 @@ CONFIG = {
     'max_stocks': 10              # 最大持仓股票数
 }
 
+# ====================== q_traces 阅读指引 =====================
+# 交易原因（action 字段为 BUY/SELL，reason 字段为 trigger_grid）
+# BUY, trigger_grid
+# 含义：当前价格低于等于某一网格线，且资金充足，触发买入操作。
+
+# SELL, trigger_grid
+# 含义：当前价格高于等于某一网格线，且有持仓，触发卖出操作。
+
+# 不交易原因（action 字段为 NO_TRADE，reason 字段如下）
+# max_stocks_limit
+# 含义：已持有的股票数量达到最大持仓数，且当前股票未持仓，无法再买入新股票。
+
+# no_data
+# 含义：当天没有该股票的数据，无法进行任何操作。
+
+# price_above_all_grids
+# 含义：当前价格高于所有网格线，没有触发任何买入信号。
+
+# price_below_all_grids
+# 含义：当前价格低于所有网格线，没有触发任何卖出信号。
+
+# cash_not_enough
+# 含义：账户现金不足以买入一格对应的股票数量，无法执行买入操作。
+
+# no_position_to_sell
+# 含义：当前没有持仓，无法执行卖出操作。
+
+# not_trigger_grid
+# 含义：价格未触及任何网格线，未触发买入或卖出信号。
+
 class GridTradingStrategy:
     def __init__(self, stock_data_dict, config):
         self.config = config
@@ -36,21 +66,31 @@ class GridTradingStrategy:
             levels = [mid_price * (1 + grid_pct * (i - grid_size)) for i in range(2 * grid_size + 1)]
             self.grid_levels[symbol] = sorted(levels)
 
-    def execute_trades(self, out_file=None):
+    def execute_trades(self, out_file=None, trace_file=None):
         all_dates = sorted(set(sum([list(df['time_key']) for df in self.data_dict.values()], [])))
-        # no_trade_reasons = {symbol: [] for symbol in self.symbols}
-        # 打开文件用于追加写入
+        # 生成主交易日志文件名
         if out_file is None:
-            base_name = "q_grid_"
+            base_name = "q_commits_"
             idx = 1
             while True:
-                out_file = f"{base_name}{idx:03d}.txt"
+                out_file = f"{base_name}{idx:03d}.csv"
                 if not os.path.exists(out_file):
                     break
                 idx += 1
-        with open(out_file, 'w', encoding='utf-8') as f:
-            # 写表头
+        # 生成trace日志文件名
+        if trace_file is None:
+            base_name2 = "q_traces_"
+            idx2 = 1
+            while True:
+                trace_file = f"{base_name2}{idx2:03d}.csv"
+                if not os.path.exists(trace_file):
+                    break
+                idx2 += 1
+        with open(out_file, 'w', encoding='utf-8') as f, open(trace_file, 'w', encoding='utf-8') as tf:
+            # 主日志表头
             f.write('date,symbol,type,price,quantity,cash_after,position_after,year,pnl\n')
+            # trace日志表头
+            tf.write('date,symbol,action,reason,price,trigger_price,close_price\n')
             for date in all_dates:
                 total_value = self.cash
                 for symbol in self.symbols:
@@ -63,22 +103,26 @@ class GridTradingStrategy:
                 for symbol in self.symbols:
                     # 最大持仓数限制
                     if sum(1 for v in self.positions.values() if v > 0) >= self.config['max_stocks'] and self.positions[symbol] == 0:
+                        tf.write(f"{date},{symbol},NO_TRADE,max_stocks_limit,NA,NA,NA\n")
                         continue
                     df = self.data_dict[symbol]
                     row = df[df['time_key'] == date]
                     if row.empty:
+                        tf.write(f"{date},{symbol},NO_TRADE,no_data,NA,NA,NA\n")
                         continue
                     price = row.iloc[0]['close']
                     did_trade = False
+                    trigger_price = None
                     # 网格买入
                     for level in self.grid_levels[symbol]:
                         if price <= level and self.cash >= self.config['per_grid_cash']:
                             qty = int(self.config['per_grid_cash'] // price)
                             if qty > 0:
                                 self.buy(symbol, price, date, qty)
-                                # 交易记录即时写入
                                 f.write(f"{date},{symbol},BUY,{price},{qty},{self.cash},{self.positions[symbol]},{pd.to_datetime(date).year},0.0\n")
+                                tf.write(f"{date},{symbol},BUY,trigger_grid,{price},{level},{price}\n")
                                 did_trade = True
+                                trigger_price = level
                                 break
                     # 网格卖出
                     for level in self.grid_levels[symbol]:
@@ -86,10 +130,23 @@ class GridTradingStrategy:
                             qty = min(self.positions[symbol], int(self.config['per_grid_cash'] // price))
                             if qty > 0:
                                 self.sell(symbol, price, date, qty)
-                                # 交易记录即时写入
                                 f.write(f"{date},{symbol},SELL,{price},{qty},{self.cash},{self.positions[symbol]},{pd.to_datetime(date).year},0.0\n")
+                                tf.write(f"{date},{symbol},SELL,trigger_grid,{price},{level},{price}\n")
                                 did_trade = True
+                                trigger_price = level
                                 break
+                    if not did_trade:
+                        # 资金不足 or 持仓不足 or 未触发网格
+                        if all(price > level for level in self.grid_levels[symbol]):
+                            tf.write(f"{date},{symbol},NO_TRADE,price_above_all_grids,{price},NA,{price}\n")
+                        elif all(price < level for level in self.grid_levels[symbol]):
+                            tf.write(f"{date},{symbol},NO_TRADE,price_below_all_grids,{price},NA,{price}\n")
+                        elif self.cash < self.config['per_grid_cash']:
+                            tf.write(f"{date},{symbol},NO_TRADE,cash_not_enough,{price},NA,{price}\n")
+                        elif self.positions[symbol] == 0:
+                            tf.write(f"{date},{symbol},NO_TRADE,no_position_to_sell,{price},NA,{price}\n")
+                        else:
+                            tf.write(f"{date},{symbol},NO_TRADE,not_trigger_grid,{price},NA,{price}\n")
 
     def buy(self, symbol, price, date, qty):
         cost = qty * price
@@ -218,15 +275,23 @@ if __name__ == "__main__":
             print(f"未找到 {csv_file}，跳过该股票")
     strategy = GridTradingStrategy(stock_data_dict, CONFIG)
     # 先生成唯一输出文件名
-    base_name = "q_grid_"
+    base_name = "q_commits_"
     idx = 1
     while True:
-        out_file = f"{base_name}{idx:03d}.txt"
+        out_file = f"{base_name}{idx:03d}.csv"
         if not os.path.exists(out_file):
             break
         idx += 1
-    strategy.execute_trades(out_file=out_file)
-    print(f"交易记录及不交易日志已保存到: {out_file}")
+    base_name2 = "q_traces_"
+    idx2 = 1
+    while True:
+        trace_file = f"{base_name2}{idx2:03d}.csv"
+        if not os.path.exists(trace_file):
+            break
+        idx2 += 1
+    strategy.execute_trades(out_file=out_file, trace_file=trace_file)
+    print(f"交易记录已保存到: {out_file}")
+    print(f"每日追踪日志已保存到: {trace_file}")
     results = strategy.generate_report()
     print("交易记录：")
     print(results['trade_log'].tail(20))
