@@ -88,41 +88,50 @@ class GridTradingStrategy:
                 idx2 += 1
         with open(out_file, 'w', encoding='utf-8') as f, open(trace_file, 'w', encoding='utf-8') as tf:
             # 主日志表头
-            f.write('date,symbol,type,price,quantity,cash_after,position_after,year,pnl\n')
+            f.write('date,symbol,type,price,quantity,cash_after,position_after,position_value,position_ratio,total_position_value\n')
             # trace日志表头
-            tf.write('date,symbol,action,reason,price,trigger_price,close_price\n')
+            tf.write('date,symbol,action,reason,price,trigger_price,close_price,position_after,position_value,position_ratio,total_position_value,cash_value,quantity\n')
             for date in all_dates:
                 total_value = self.cash
+                total_position_value = 0
+                position_value_dict = {}
                 for symbol in self.symbols:
                     df = self.data_dict[symbol]
                     row = df[df['time_key'] == date]
                     if not row.empty:
                         price = row.iloc[0]['close']
-                        total_value += self.positions[symbol] * price
+                        position_value = self.positions[symbol] * price
+                        position_value_dict[symbol] = position_value
+                        total_position_value += position_value
+                        total_value += position_value
+                    else:
+                        position_value_dict[symbol] = 0
                 self.portfolio_value.append({'date': date, 'total_value': total_value, 'cash': self.cash, 'positions': self.positions.copy()})
                 for symbol in self.symbols:
                     # 最大持仓数限制
                     if sum(1 for v in self.positions.values() if v > 0) >= self.config['max_stocks'] and self.positions[symbol] == 0:
-                        tf.write(f"{date},{symbol},NO_TRADE,max_stocks_limit,NA,NA,NA\n")
+                        tf.write(f"{date},{symbol},NO_TRADE,max_stocks_limit,NA,NA,NA,{self.positions[symbol]},{position_value_dict[symbol]},{position_value_dict[symbol]/total_position_value if total_position_value>0 else 0},{total_position_value},{self.cash},0\n")
                         continue
                     df = self.data_dict[symbol]
                     row = df[df['time_key'] == date]
                     if row.empty:
-                        tf.write(f"{date},{symbol},NO_TRADE,no_data,NA,NA,NA\n")
+                        tf.write(f"{date},{symbol},NO_TRADE,no_data,NA,NA,NA,{self.positions[symbol]},{position_value_dict[symbol]},{position_value_dict[symbol]/total_position_value if total_position_value>0 else 0},{total_position_value},{self.cash},0\n")
                         continue
                     price = row.iloc[0]['close']
                     did_trade = False
                     trigger_price = None
+                    trade_qty = 0
                     # 网格买入
                     for level in self.grid_levels[symbol]:
                         if price <= level and self.cash >= self.config['per_grid_cash']:
                             qty = int(self.config['per_grid_cash'] // price)
                             if qty > 0:
                                 self.buy(symbol, price, date, qty)
-                                f.write(f"{date},{symbol},BUY,{price},{qty},{self.cash},{self.positions[symbol]},{pd.to_datetime(date).year},0.0\n")
-                                tf.write(f"{date},{symbol},BUY,trigger_grid,{price},{level},{price}\n")
+                                f.write(f"{date},{symbol},BUY,{price},{qty},{self.cash},{self.positions[symbol]},{self.positions[symbol]*price},{(self.positions[symbol]*price)/total_position_value if total_position_value>0 else 0},{total_position_value}\n")
+                                tf.write(f"{date},{symbol},BUY,trigger_grid,{price},{level},{price},{self.positions[symbol]},{self.positions[symbol]*price},{(self.positions[symbol]*price)/total_position_value if total_position_value>0 else 0},{total_position_value},{self.cash},{qty}\n")
                                 did_trade = True
                                 trigger_price = level
+                                trade_qty = qty
                                 break
                     # 网格卖出
                     for level in self.grid_levels[symbol]:
@@ -130,23 +139,26 @@ class GridTradingStrategy:
                             qty = min(self.positions[symbol], int(self.config['per_grid_cash'] // price))
                             if qty > 0:
                                 self.sell(symbol, price, date, qty)
-                                f.write(f"{date},{symbol},SELL,{price},{qty},{self.cash},{self.positions[symbol]},{pd.to_datetime(date).year},0.0\n")
-                                tf.write(f"{date},{symbol},SELL,trigger_grid,{price},{level},{price}\n")
+                                f.write(f"{date},{symbol},SELL,{price},{qty},{self.cash},{self.positions[symbol]},{self.positions[symbol]*price},{(self.positions[symbol]*price)/total_position_value if total_position_value>0 else 0},{total_position_value}\n")
+                                tf.write(f"{date},{symbol},SELL,trigger_grid,{price},{level},{price},{self.positions[symbol]},{self.positions[symbol]*price},{(self.positions[symbol]*price)/total_position_value if total_position_value>0 else 0},{total_position_value},{self.cash},{qty}\n")
                                 did_trade = True
                                 trigger_price = level
+                                trade_qty = qty
                                 break
                     if not did_trade:
                         # 资金不足 or 持仓不足 or 未触发网格
+                        reason_str = ''
                         if all(price > level for level in self.grid_levels[symbol]):
-                            tf.write(f"{date},{symbol},NO_TRADE,price_above_all_grids,{price},NA,{price}\n")
+                            reason_str = 'price_above_all_grids'
                         elif all(price < level for level in self.grid_levels[symbol]):
-                            tf.write(f"{date},{symbol},NO_TRADE,price_below_all_grids,{price},NA,{price}\n")
+                            reason_str = 'price_below_all_grids'
                         elif self.cash < self.config['per_grid_cash']:
-                            tf.write(f"{date},{symbol},NO_TRADE,cash_not_enough,{price},NA,{price}\n")
+                            reason_str = 'cash_not_enough'
                         elif self.positions[symbol] == 0:
-                            tf.write(f"{date},{symbol},NO_TRADE,no_position_to_sell,{price},NA,{price}\n")
+                            reason_str = 'no_position_to_sell'
                         else:
-                            tf.write(f"{date},{symbol},NO_TRADE,not_trigger_grid,{price},NA,{price}\n")
+                            reason_str = 'not_trigger_grid'
+                        tf.write(f"{date},{symbol},NO_TRADE,{reason_str},{price},NA,{price},{self.positions[symbol]},{self.positions[symbol]*price},{(self.positions[symbol]*price)/total_position_value if total_position_value>0 else 0},{total_position_value},{self.cash},0\n")
 
     def buy(self, symbol, price, date, qty):
         cost = qty * price
