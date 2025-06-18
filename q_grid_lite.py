@@ -10,6 +10,7 @@ CONFIG = {
     'grid_size': 5,
     'per_grid_cash': 20000,
     'max_position_ratio': 0.3,
+    'adaptive_grid_N': 25,  # 自适应网格最近N日均价
 }
 
 # ===================== 网格交易核心类 =====================
@@ -25,9 +26,13 @@ class GridTraderLite:
         self.grid_levels = {}
         self.setup_grids()
 
-    def setup_grids(self):
+    def setup_grids(self, mid_price_dict=None):
+        # 支持传入每只股票的中轴价，否则用首日收盘
         for symbol, df in self.data_dict.items():
-            mid_price = df['close'].iloc[0]
+            if mid_price_dict and symbol in mid_price_dict:
+                mid_price = mid_price_dict[symbol]
+            else:
+                mid_price = df['close'].iloc[0]
             grid_pct = self.config['grid_pct']
             grid_size = self.config['grid_size']
             levels = [mid_price * (1 + grid_pct * (i - grid_size)) for i in range(2 * grid_size + 1)]
@@ -36,16 +41,25 @@ class GridTraderLite:
     def run_backtest(self):
         all_dates = sorted(set(sum([list(df['time_key'].dt.strftime('%Y-%m-%d')) for df in self.data_dict.values()], [])))
         daily_report = []
-        # 统计每只股票的操作次数
         self.trade_stats = {symbol: {'BUY': 0, 'SELL': 0, 'NO_TRADE': 0} for symbol in self.symbols}
+        N = self.config.get('adaptive_grid_N', 5)
         for date in all_dates:
+            # 用最近N日均价作为自适应网格中轴
+            mid_price_dict = {}
+            for symbol, df in self.data_dict.items():
+                df_sorted = df.sort_values('time_key')
+                df_recent = df_sorted[df_sorted['time_key'].dt.strftime('%Y-%m-%d') <= date].tail(N)
+                if not df_recent.empty:
+                    mid_price_dict[symbol] = df_recent['close'].mean()
+                else:
+                    mid_price_dict[symbol] = df_sorted['close'].iloc[0]
+            self.setup_grids(mid_price_dict)
             price_dict = {symbol: df[df['time_key'].dt.strftime('%Y-%m-%d')==date]['close'].values[0] if not df[df['time_key'].dt.strftime('%Y-%m-%d')==date].empty else None for symbol, df in self.data_dict.items()}
             total_value = self.cash
             for symbol in self.symbols:
                 if price_dict[symbol] is not None:
                     total_value += self.positions[symbol] * price_dict[symbol]
             self.asset_history.append({'date': date, 'total_value': total_value, 'cash': self.cash, 'positions': self.positions.copy()})
-            # 交易逻辑
             for symbol in self.symbols:
                 price = price_dict[symbol]
                 did_trade = False
@@ -76,10 +90,8 @@ class GridTraderLite:
                                 self.trade_stats[symbol]['SELL'] += 1
                                 did_trade = True
                             break
-                # 每个交易日都统计一次NO_TRADE（当天既未BUY也未SELL）
                 if not did_trade:
                     self.trade_stats[symbol]['NO_TRADE'] += 1
-            # 日报
             daily_report.append(self._gen_report(date, price_dict))
         return daily_report
 
@@ -118,8 +130,12 @@ def grid_signal_today(stock_data_dict, config):
         df = df.sort_values('time_key')
         last_row = df.iloc[-1]
         price = last_row['close']
-        # 以首日收盘为中轴
-        mid_price = df.iloc[0]['close']
+        # 用最近N日均价作为自适应网格中轴
+        N = config.get('adaptive_grid_N', 5)
+        if len(df) >= N:
+            mid_price = df['close'].iloc[-N:].mean()
+        else:
+            mid_price = df['close'].iloc[0]
         grid_pct = config['grid_pct']
         grid_size = config['grid_size']
         grid_levels = [mid_price * (1 + grid_pct * (i - grid_size)) for i in range(2 * grid_size + 1)]
