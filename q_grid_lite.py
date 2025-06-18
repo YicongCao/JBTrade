@@ -156,6 +156,7 @@ class GridTraderLite:
 # ===================== 今日网格操作建议 =====================
 def grid_signal_today(stock_data_dict, config):
     results = []
+    today_str = datetime.now().strftime('%Y-%m-%d')
     for symbol, df in stock_data_dict.items():
         if len(df) < 3:
             results.append({'symbol': symbol, 'alert': '数据不足3天，无法生成信号'})
@@ -207,7 +208,8 @@ def grid_signal_today(stock_data_dict, config):
             'price': price,
             'trigger_price': trigger_price,
             'future_buy_prices': buy_prices,
-            'future_sell_prices': sell_prices
+            'future_sell_prices': sell_prices,
+            'date': today_str
         })
     return results
 
@@ -263,35 +265,109 @@ if __name__ == "__main__":
     if mode == 'backtest':
         run_backtest_and_report(stock_data_dict, CONFIG)
     elif mode == 'signal':
-        # 今日网格操作建议并推送到企业微信
-        today_signals = grid_signal_today(stock_data_dict, CONFIG)
+        import json
         wxwork_key = config.get('wxwork_webhook_key')
-        all_msgs = []
-        for s in today_signals:
-            buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
-            sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
-            msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
-            print(msg)
-            all_msgs.append(msg)
-        if wxwork_key:
-            # 合并所有内容
-            full_msg = '\n\n'.join(all_msgs)
-            # 按字节切割，每块不超过1950字节
-            def split_by_bytes(s, max_bytes=1950):
-                res = []
-                cur = ''
-                for line in s.split('\n'):
-                    if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
-                        res.append(cur)
-                        cur = line
-                    else:
+        tmp_json_file = 'q_grid_lite_tmp.json'
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        # 检查是否有临时信号文件
+        if os.path.exists(tmp_json_file):
+            with open(tmp_json_file, 'r', encoding='utf-8') as f:
+                prev_signals = json.load(f)
+            # 检查临时信号文件日期
+            prev_date = prev_signals[0]['date'] if prev_signals and 'date' in prev_signals[0] else None
+            if prev_date != today_str:
+                # 日期不是今天，重新生成今日信号并推送
+                today_signals = grid_signal_today(stock_data_dict, CONFIG)
+                with open(tmp_json_file, 'w', encoding='utf-8') as f:
+                    json.dump(today_signals, f, ensure_ascii=False, indent=2)
+                all_msgs = []
+                for s in today_signals:
+                    buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
+                    sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
+                    msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+                    print(msg)
+                    all_msgs.append(msg)
+                if wxwork_key:
+                    full_msg = '\n\n'.join(all_msgs)
+                    def split_by_bytes(s, max_bytes=1950):
+                        res = []
+                        cur = ''
+                        for line in s.split('\n'):
+                            if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
+                                res.append(cur)
+                                cur = line
+                            else:
+                                if cur:
+                                    cur += '\n' + line
+                                else:
+                                    cur = line
                         if cur:
-                            cur += '\n' + line
-                        else:
+                            res.append(cur)
+                        return res
+                    msg_chunks = split_by_bytes(full_msg, 1950)
+                    for chunk in msg_chunks:
+                        push_to_wxwork(chunk, wxwork_key)
+            else:
+                # 日期是今天，检查是否触及未来三次SELL/BUY价
+                triggered = False
+                for symbol in config['symbols']:
+                    csv_file = get_csv_filename(symbol)
+                    if os.path.exists(csv_file):
+                        df = pd.read_csv(csv_file)
+                        df['time_key'] = pd.to_datetime(df['time_key'])
+                        latest_row = df.sort_values('time_key').iloc[-1]
+                        latest_price = latest_row['close']
+                        prev = next((x for x in prev_signals if x['symbol'] == symbol), None)
+                        if prev:
+                            sell_hit = [x for x in prev.get('future_sell_prices', []) if latest_price >= x]
+                            buy_hit = [x for x in prev.get('future_buy_prices', []) if latest_price <= x]
+                            if sell_hit or buy_hit:
+                                buy_str = ', '.join([f'{x:.2f}' for x in prev.get('future_buy_prices', [])]) if prev.get('future_buy_prices') else '-'
+                                sell_str = ', '.join([f'{x:.2f}' for x in prev.get('future_sell_prices', [])]) if prev.get('future_sell_prices') else '-'
+                                msg = f"**{symbol}**\n最新价: {latest_price}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+                                if buy_hit:
+                                    msg += f"\n已触及BUY价: {', '.join([f'{x:.2f}' for x in buy_hit])}"
+                                if sell_hit:
+                                    msg += f"\n已触及SELL价: {', '.join([f'{x:.2f}' for x in sell_hit])}"
+                                print(msg)
+                                if wxwork_key:
+                                    push_to_wxwork(msg, wxwork_key)
+                                triggered = True
+                if triggered:
+                    # 删除临时文件并生成新信号
+                    os.remove(tmp_json_file)
+                    today_signals = grid_signal_today(stock_data_dict, CONFIG)
+                    with open(tmp_json_file, 'w', encoding='utf-8') as f:
+                        json.dump(today_signals, f, ensure_ascii=False, indent=2)
+        else:
+            # 今日网格操作建议并推送到企业微信
+            today_signals = grid_signal_today(stock_data_dict, CONFIG)
+            with open(tmp_json_file, 'w', encoding='utf-8') as f:
+                json.dump(today_signals, f, ensure_ascii=False, indent=2)
+            all_msgs = []
+            for s in today_signals:
+                buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
+                sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
+                msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+                print(msg)
+                all_msgs.append(msg)
+            if wxwork_key:
+                full_msg = '\n\n'.join(all_msgs)
+                def split_by_bytes(s, max_bytes=1950):
+                    res = []
+                    cur = ''
+                    for line in s.split('\n'):
+                        if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
+                            res.append(cur)
                             cur = line
-                if cur:
-                    res.append(cur)
-                return res
-            msg_chunks = split_by_bytes(full_msg, 1950)
-            for chunk in msg_chunks:
-                push_to_wxwork(chunk, wxwork_key)
+                        else:
+                            if cur:
+                                cur += '\n' + line
+                            else:
+                                cur = line
+                    if cur:
+                        res.append(cur)
+                    return res
+                msg_chunks = split_by_bytes(full_msg, 1950)
+                for chunk in msg_chunks:
+                    push_to_wxwork(chunk, wxwork_key)
