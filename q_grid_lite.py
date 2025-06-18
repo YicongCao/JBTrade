@@ -245,6 +245,38 @@ def push_to_wxwork(content, webhook_key):
 
 # ===================== 主流程 =====================
 if __name__ == "__main__":
+    def gen_and_push_signals(stock_data_dict, config, tmp_json_file, wxwork_key):
+        today_signals = grid_signal_today(stock_data_dict, config)
+        with open(tmp_json_file, 'w', encoding='utf-8') as f:
+            import json
+            json.dump(today_signals, f, ensure_ascii=False, indent=2)
+        all_msgs = []
+        for s in today_signals:
+            buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
+            sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
+            msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            print(msg)
+            all_msgs.append(msg)
+        if wxwork_key:
+            full_msg = '\n\n'.join(all_msgs)
+            def split_by_bytes(s, max_bytes=1950):
+                res = []
+                cur = ''
+                for line in s.split('\n'):
+                    if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
+                        res.append(cur)
+                        cur = line
+                    else:
+                        if cur:
+                            cur += '\n' + line
+                        else:
+                            cur = line
+                if cur:
+                    res.append(cur)
+                return res
+            msg_chunks = split_by_bytes(full_msg, 1950)
+            for chunk in msg_chunks:
+                push_to_wxwork(chunk, wxwork_key)
     # 更新股价数据
     fetch_and_save_k_line_data()
     # 读取配置和数据
@@ -277,36 +309,7 @@ if __name__ == "__main__":
             prev_date = prev_signals[0]['date'] if prev_signals and 'date' in prev_signals[0] else None
             if prev_date != today_str:
                 # 日期不是今天，重新生成今日信号并推送
-                today_signals = grid_signal_today(stock_data_dict, CONFIG)
-                with open(tmp_json_file, 'w', encoding='utf-8') as f:
-                    json.dump(today_signals, f, ensure_ascii=False, indent=2)
-                all_msgs = []
-                for s in today_signals:
-                    buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
-                    sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
-                    msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
-                    print(msg)
-                    all_msgs.append(msg)
-                if wxwork_key:
-                    full_msg = '\n\n'.join(all_msgs)
-                    def split_by_bytes(s, max_bytes=1950):
-                        res = []
-                        cur = ''
-                        for line in s.split('\n'):
-                            if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
-                                res.append(cur)
-                                cur = line
-                            else:
-                                if cur:
-                                    cur += '\n' + line
-                                else:
-                                    cur = line
-                        if cur:
-                            res.append(cur)
-                        return res
-                    msg_chunks = split_by_bytes(full_msg, 1950)
-                    for chunk in msg_chunks:
-                        push_to_wxwork(chunk, wxwork_key)
+                gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
             else:
                 # 日期是今天，检查是否触及未来三次SELL/BUY价
                 triggered = False
@@ -336,38 +339,7 @@ if __name__ == "__main__":
                 if triggered:
                     # 删除临时文件并生成新信号
                     os.remove(tmp_json_file)
-                    today_signals = grid_signal_today(stock_data_dict, CONFIG)
-                    with open(tmp_json_file, 'w', encoding='utf-8') as f:
-                        json.dump(today_signals, f, ensure_ascii=False, indent=2)
+                    gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
         else:
             # 今日网格操作建议并推送到企业微信
-            today_signals = grid_signal_today(stock_data_dict, CONFIG)
-            with open(tmp_json_file, 'w', encoding='utf-8') as f:
-                json.dump(today_signals, f, ensure_ascii=False, indent=2)
-            all_msgs = []
-            for s in today_signals:
-                buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
-                sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
-                msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
-                print(msg)
-                all_msgs.append(msg)
-            if wxwork_key:
-                full_msg = '\n\n'.join(all_msgs)
-                def split_by_bytes(s, max_bytes=1950):
-                    res = []
-                    cur = ''
-                    for line in s.split('\n'):
-                        if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
-                            res.append(cur)
-                            cur = line
-                        else:
-                            if cur:
-                                cur += '\n' + line
-                            else:
-                                cur = line
-                    if cur:
-                        res.append(cur)
-                    return res
-                msg_chunks = split_by_bytes(full_msg, 1950)
-                for chunk in msg_chunks:
-                    push_to_wxwork(chunk, wxwork_key)
+            gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
