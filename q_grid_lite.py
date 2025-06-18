@@ -243,6 +243,9 @@ def push_to_wxwork(content, webhook_key):
 
 # ===================== 主流程 =====================
 if __name__ == "__main__":
+    # 更新股价数据
+    fetch_and_save_k_line_data()
+    # 读取配置和数据
     config = read_config()
     symbols = config['symbols']
     stock_data_dict = {}
@@ -260,8 +263,6 @@ if __name__ == "__main__":
     if mode == 'backtest':
         run_backtest_and_report(stock_data_dict, CONFIG)
     elif mode == 'signal':
-        # 更新股价数据
-        fetch_and_save_k_line_data()
         # 今日网格操作建议并推送到企业微信
         today_signals = grid_signal_today(stock_data_dict, CONFIG)
         wxwork_key = config.get('wxwork_webhook_key')
