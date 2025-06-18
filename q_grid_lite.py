@@ -6,11 +6,11 @@ from utils import get_csv_filename, read_config
 
 CONFIG = {
     'initial_cash': 1000000,
-    'grid_pct': 0.02,
-    'grid_size': 5,
-    'per_grid_cash': 20000,
+    'grid_pct': 0.04, 
+    'grid_size': 4,   
+    'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
-    'adaptive_grid_N': 25,  # 自适应网格最近N日均价
+    'adaptive_grid_N': 20,
 }
 
 # ===================== 网格交易核心类 =====================
