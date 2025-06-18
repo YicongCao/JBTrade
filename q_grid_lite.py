@@ -36,6 +36,8 @@ class GridTraderLite:
     def run_backtest(self):
         all_dates = sorted(set(sum([list(df['time_key'].dt.strftime('%Y-%m-%d')) for df in self.data_dict.values()], [])))
         daily_report = []
+        # 统计每只股票的操作次数
+        self.trade_stats = {symbol: {'BUY': 0, 'SELL': 0, 'NO_TRADE': 0} for symbol in self.symbols}
         for date in all_dates:
             price_dict = {symbol: df[df['time_key'].dt.strftime('%Y-%m-%d')==date]['close'].values[0] if not df[df['time_key'].dt.strftime('%Y-%m-%d')==date].empty else None for symbol, df in self.data_dict.items()}
             total_value = self.cash
@@ -46,7 +48,9 @@ class GridTraderLite:
             # 交易逻辑
             for symbol in self.symbols:
                 price = price_dict[symbol]
+                did_trade = False
                 if price is None:
+                    self.trade_stats[symbol]['NO_TRADE'] += 1
                     continue
                 cur_value = self.positions[symbol] * price
                 max_value = self.config['max_position_ratio'] * total_value
@@ -58,6 +62,8 @@ class GridTraderLite:
                             if qty > 0:
                                 self.cash -= qty * price
                                 self.positions[symbol] += qty
+                                self.trade_stats[symbol]['BUY'] += 1
+                                did_trade = True
                             break
                 # 卖出
                 if cur_value > 0:
@@ -67,7 +73,12 @@ class GridTraderLite:
                             if qty > 0:
                                 self.cash += qty * price
                                 self.positions[symbol] -= qty
+                                self.trade_stats[symbol]['SELL'] += 1
+                                did_trade = True
                             break
+                # 每个交易日都统计一次NO_TRADE（当天既未BUY也未SELL）
+                if not did_trade:
+                    self.trade_stats[symbol]['NO_TRADE'] += 1
             # 日报
             daily_report.append(self._gen_report(date, price_dict))
         return daily_report
@@ -158,6 +169,9 @@ if __name__ == "__main__":
             print(f"未找到 {csv_file}，跳过该股票")
     trader = GridTraderLite(stock_data_dict, CONFIG)
     daily_report = trader.run_backtest()
+    print("\n===== 各股票操作次数统计 =====")
+    for symbol, stats in trader.trade_stats.items():
+        print(f"{symbol}: BUY={stats['BUY']} SELL={stats['SELL']} NO_TRADE={stats['NO_TRADE']}")
     print("\n===== 年报 =====")
     print(trader.yearly_report())
     print("\n===== 月报 =====")
