@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from utils import get_csv_filename, read_config
+from update_k_line_hist import fetch_and_save_k_line_data
 
 CONFIG = {
     'initial_cash': 1000000,
@@ -154,7 +155,6 @@ class GridTraderLite:
 
 # ===================== 今日网格操作建议 =====================
 def grid_signal_today(stock_data_dict, config):
-    today = datetime.now().strftime('%Y-%m-%d')
     results = []
     for symbol, df in stock_data_dict.items():
         if len(df) < 3:
@@ -260,6 +260,8 @@ if __name__ == "__main__":
     if mode == 'backtest':
         run_backtest_and_report(stock_data_dict, CONFIG)
     elif mode == 'signal':
+        # 更新股价数据
+        fetch_and_save_k_line_data()
         # 今日网格操作建议并推送到企业微信
         today_signals = grid_signal_today(stock_data_dict, CONFIG)
         wxwork_key = config.get('wxwork_webhook_key')
