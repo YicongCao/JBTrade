@@ -259,7 +259,25 @@ if __name__ == "__main__":
             trigger_price_str = f"{s['trigger_price']:.2f}" if s.get('trigger_price') not in (None, '') else ''
             symbol = s['symbol']
             name = symbol_name_map.get(symbol, symbol)
-            msg = f"**{name}({symbol})**\n操作: {s['action']}\n价格: {s['price']}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            # 颜色处理
+            action = s['action']
+            if action == 'BUY':
+                action_str = '<font color="green">BUY</font>'
+            elif action == 'SELL':
+                action_str = '<font color="red">SELL</font>'
+            elif action == 'NO_TRADE':
+                action_str = '<font color="gray">NO_TRADE</font>'
+            else:
+                action_str = action
+            # 价格颜色
+            price = s['price']
+            if action == 'BUY':
+                price_str = f'<font color="green">{price}</font>'
+            elif action == 'SELL':
+                price_str = f'<font color="red">{price}</font>'
+            else:
+                price_str = f'{price}'
+            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key:
