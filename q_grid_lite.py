@@ -5,7 +5,7 @@ from datetime import datetime
 from utils import get_csv_filename, read_config
 from update_k_line_hist import fetch_and_save_k_line_data
 
-CONFIG = {
+GRID_CONFIG = {
     'initial_cash': 1000000,
     'grid_pct': 0.04, 
     'grid_size': 4,   
@@ -254,7 +254,8 @@ if __name__ == "__main__":
         for s in today_signals:
             buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
             sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
-            msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            trigger_price_str = f"{s['trigger_price']:.2f}" if s.get('trigger_price') not in (None, '') else ''
+            msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key:
@@ -295,7 +296,7 @@ if __name__ == "__main__":
     # 通过 config 控制运行模式
     mode = config.get('mode', 'backtest')  # 'backtest' or 'signal'
     if mode == 'backtest':
-        run_backtest_and_report(stock_data_dict, CONFIG)
+        run_backtest_and_report(stock_data_dict, GRID_CONFIG)
     elif mode == 'signal':
         import json
         wxwork_key = config.get('wxwork_webhook_key')
@@ -319,7 +320,7 @@ if __name__ == "__main__":
             prev_date = prev_signals[0]['date'] if prev_signals and 'date' in prev_signals[0] else None
             if prev_date != today_str:
                 # 日期不是今天，重新生成今日信号并推送
-                gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
+                gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
             else:
                 # 日期是今天，检查是否触及未来三次SELL/BUY价
                 triggered = False
@@ -349,7 +350,7 @@ if __name__ == "__main__":
                 if triggered:
                     # 删除临时文件并生成新信号
                     os.remove(tmp_json_file)
-                    gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
+                    gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
         else:
             # 今日网格操作建议并推送到企业微信
-            gen_and_push_signals(stock_data_dict, CONFIG, tmp_json_file, wxwork_key)
+            gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
