@@ -194,14 +194,52 @@ def grid_signal_today(stock_data_dict, config):
                     break
         if action == 'NO_TRADE':
             reason = '未触发任何网格'
+        # 未来三次BUY: 低于当前价的最接近的3个网格线
+        buy_prices = [level for level in grid_levels if level < price]
+        buy_prices = buy_prices[:3] if len(buy_prices) >= 3 else buy_prices
+        # 未来三次SELL: 高于当前价的最接近的3个网格线
+        sell_prices = [level for level in grid_levels if level > price]
+        sell_prices = sell_prices[:3] if len(sell_prices) >= 3 else sell_prices
         results.append({
             'symbol': symbol,
             'action': op_type if action == 'TRADE' else 'NO_TRADE',
             'reason': reason,
             'price': price,
-            'trigger_price': trigger_price
+            'trigger_price': trigger_price,
+            'future_buy_prices': buy_prices,
+            'future_sell_prices': sell_prices
         })
     return results
+
+# ===================== 回测封装 =====================
+def run_backtest_and_report(stock_data_dict, config):
+    trader = GridTraderLite(stock_data_dict, config)
+    daily_report = trader.run_backtest()
+    print("\n===== 各股票操作次数统计 =====")
+    for symbol, stats in trader.trade_stats.items():
+        print(f"{symbol}: BUY={stats['BUY']} SELL={stats['SELL']} NO_TRADE={stats['NO_TRADE']}")
+    print("\n===== 年报 =====")
+    print(trader.yearly_report())
+    print("\n===== 月报 =====")
+    print(trader.monthly_report())
+    print("\n===== 日报（最后5天） =====")
+    for r in daily_report[-5:]:
+        print(r)
+
+# ===================== 推送到企业微信 =====================
+def push_to_wxwork(content, webhook_key):
+    import requests
+    url = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={webhook_key}"
+    headers = {'Content-Type': 'application/json'}
+    data = {
+        "msgtype": "markdown",
+        "markdown": {
+            "content": content
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code != 200:
+        print(f"推送失败: {response.text}")
 
 # ===================== 主流程 =====================
 if __name__ == "__main__":
@@ -216,19 +254,41 @@ if __name__ == "__main__":
             stock_data_dict[symbol] = df
         else:
             print(f"未找到 {csv_file}，跳过该股票")
-    trader = GridTraderLite(stock_data_dict, CONFIG)
-    daily_report = trader.run_backtest()
-    print("\n===== 各股票操作次数统计 =====")
-    for symbol, stats in trader.trade_stats.items():
-        print(f"{symbol}: BUY={stats['BUY']} SELL={stats['SELL']} NO_TRADE={stats['NO_TRADE']}")
-    print("\n===== 年报 =====")
-    print(trader.yearly_report())
-    print("\n===== 月报 =====")
-    print(trader.monthly_report())
-    print("\n===== 日报（最后5天） =====")
-    for r in daily_report[-5:]:
-        print(r)
-    print("\n===== 今日网格操作建议 =====")
-    today_signals = grid_signal_today(stock_data_dict, CONFIG)
-    for s in today_signals:
-        print(s)
+
+    # 通过 config 控制运行模式
+    mode = config.get('mode', 'backtest')  # 'backtest' or 'signal'
+    if mode == 'backtest':
+        run_backtest_and_report(stock_data_dict, CONFIG)
+    elif mode == 'signal':
+        # 今日网格操作建议并推送到企业微信
+        today_signals = grid_signal_today(stock_data_dict, CONFIG)
+        wxwork_key = config.get('wxwork_webhook_key')
+        all_msgs = []
+        for s in today_signals:
+            buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
+            sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
+            msg = f"**{s['symbol']}**\n操作: {s['action']}\n原因: {s['reason']}\n价格: {s['price']}\n触发网格价: {s['trigger_price']}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            print(msg)
+            all_msgs.append(msg)
+        if wxwork_key:
+            # 合并所有内容
+            full_msg = '\n\n'.join(all_msgs)
+            # 按字节切割，每块不超过1950字节
+            def split_by_bytes(s, max_bytes=1950):
+                res = []
+                cur = ''
+                for line in s.split('\n'):
+                    if len((cur + '\n' + line).encode('utf-8')) > max_bytes:
+                        res.append(cur)
+                        cur = line
+                    else:
+                        if cur:
+                            cur += '\n' + line
+                        else:
+                            cur = line
+                if cur:
+                    res.append(cur)
+                return res
+            msg_chunks = split_by_bytes(full_msg, 1950)
+            for chunk in msg_chunks:
+                push_to_wxwork(chunk, wxwork_key)
