@@ -10,7 +10,7 @@ CONFIG = {
     'grid_size': 4,   
     'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
-    'adaptive_grid_N': 20,
+    'adaptive_grid_N': 60,
 }
 
 # ===================== 网格交易核心类 =====================
@@ -39,6 +39,7 @@ class GridTraderLite:
             self.grid_levels[symbol] = sorted(levels)
 
     def run_backtest(self):
+        trades_log = []  # 记录每日操作
         all_dates = sorted(set(sum([list(df['time_key'].dt.strftime('%Y-%m-%d')) for df in self.data_dict.values()], [])))
         daily_report = []
         self.trade_stats = {symbol: {'BUY': 0, 'SELL': 0, 'NO_TRADE': 0} for symbol in self.symbols}
@@ -63,8 +64,19 @@ class GridTraderLite:
             for symbol in self.symbols:
                 price = price_dict[symbol]
                 did_trade = False
+                trade_type = 'NO_TRADE'
+                trade_qty = 0
+                trigger_price = None
                 if price is None:
                     self.trade_stats[symbol]['NO_TRADE'] += 1
+                    trades_log.append({
+                        'date': date,
+                        'symbol': symbol,
+                        'action': 'NO_TRADE',
+                        'price': '',
+                        'quantity': '',
+                        'trigger_price': ''
+                    })
                     continue
                 cur_value = self.positions[symbol] * price
                 max_value = self.config['max_position_ratio'] * total_value
@@ -78,6 +90,9 @@ class GridTraderLite:
                                 self.positions[symbol] += qty
                                 self.trade_stats[symbol]['BUY'] += 1
                                 did_trade = True
+                                trade_type = 'BUY'
+                                trade_qty = qty
+                                trigger_price = level
                             break
                 # 卖出
                 if cur_value > 0:
@@ -89,10 +104,28 @@ class GridTraderLite:
                                 self.positions[symbol] -= qty
                                 self.trade_stats[symbol]['SELL'] += 1
                                 did_trade = True
+                                trade_type = 'SELL'
+                                trade_qty = qty
+                                trigger_price = level
                             break
                 if not did_trade:
                     self.trade_stats[symbol]['NO_TRADE'] += 1
+                trades_log.append({
+                    'date': date,
+                    'symbol': symbol,
+                    'action': trade_type,
+                    'price': price,
+                    'quantity': trade_qty if did_trade else '',
+                    'trigger_price': trigger_price if did_trade else ''
+                })
             daily_report.append(self._gen_report(date, price_dict))
+        # 写入 trades.csv
+        import csv
+        with open('trades.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['date', 'symbol', 'action', 'price', 'quantity', 'trigger_price'])
+            writer.writeheader()
+            for row in trades_log:
+                writer.writerow(row)
         return daily_report
 
     def _gen_report(self, date, price_dict):
