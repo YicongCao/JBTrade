@@ -1,0 +1,171 @@
+import os
+import pandas as pd
+import numpy as np
+from datetime import datetime
+from utils import get_csv_filename, read_config
+
+CONFIG = {
+    'initial_cash': 1000000,
+    'grid_pct': 0.02,
+    'grid_size': 5,
+    'per_grid_cash': 20000,
+    'max_position_ratio': 0.3,
+}
+
+# ===================== 网格交易核心类 =====================
+class GridTraderLite:
+    def __init__(self, stock_data_dict, config):
+        self.config = config
+        self.symbols = list(stock_data_dict.keys())
+        self.data_dict = stock_data_dict
+        self.initial_cash = config['initial_cash']
+        self.cash = self.initial_cash
+        self.positions = {symbol: 0 for symbol in self.symbols}
+        self.asset_history = []  # 记录每日资产
+        self.grid_levels = {}
+        self.setup_grids()
+
+    def setup_grids(self):
+        for symbol, df in self.data_dict.items():
+            mid_price = df['close'].iloc[0]
+            grid_pct = self.config['grid_pct']
+            grid_size = self.config['grid_size']
+            levels = [mid_price * (1 + grid_pct * (i - grid_size)) for i in range(2 * grid_size + 1)]
+            self.grid_levels[symbol] = sorted(levels)
+
+    def run_backtest(self):
+        all_dates = sorted(set(sum([list(df['time_key'].dt.strftime('%Y-%m-%d')) for df in self.data_dict.values()], [])))
+        daily_report = []
+        for date in all_dates:
+            price_dict = {symbol: df[df['time_key'].dt.strftime('%Y-%m-%d')==date]['close'].values[0] if not df[df['time_key'].dt.strftime('%Y-%m-%d')==date].empty else None for symbol, df in self.data_dict.items()}
+            total_value = self.cash
+            for symbol in self.symbols:
+                if price_dict[symbol] is not None:
+                    total_value += self.positions[symbol] * price_dict[symbol]
+            self.asset_history.append({'date': date, 'total_value': total_value, 'cash': self.cash, 'positions': self.positions.copy()})
+            # 交易逻辑
+            for symbol in self.symbols:
+                price = price_dict[symbol]
+                if price is None:
+                    continue
+                cur_value = self.positions[symbol] * price
+                max_value = self.config['max_position_ratio'] * total_value
+                # 买入
+                if cur_value < max_value and self.cash >= self.config['per_grid_cash']:
+                    for level in self.grid_levels[symbol]:
+                        if price <= level:
+                            qty = int(self.config['per_grid_cash'] // price)
+                            if qty > 0:
+                                self.cash -= qty * price
+                                self.positions[symbol] += qty
+                            break
+                # 卖出
+                if cur_value > 0:
+                    for level in self.grid_levels[symbol]:
+                        if price >= level:
+                            qty = min(self.positions[symbol], int(self.config['per_grid_cash'] // price))
+                            if qty > 0:
+                                self.cash += qty * price
+                                self.positions[symbol] -= qty
+                            break
+            # 日报
+            daily_report.append(self._gen_report(date, price_dict))
+        return daily_report
+
+    def _gen_report(self, date, price_dict):
+        report = {'date': date, 'cash': self.cash, 'positions': {}, 'total_value': 0}
+        total_value = self.cash
+        for symbol in self.symbols:
+            price = price_dict.get(symbol, 0) or 0
+            qty = self.positions[symbol]
+            value = qty * price
+            report['positions'][symbol] = {'quantity': qty, 'price': price, 'value': value}
+            total_value += value
+        report['total_value'] = total_value
+        return report
+
+    def monthly_report(self):
+        df = pd.DataFrame(self.asset_history)
+        df['date'] = pd.to_datetime(df['date'])
+        df['month'] = df['date'].dt.to_period('M')
+        return df.groupby('month')['total_value'].last()
+
+    def yearly_report(self):
+        df = pd.DataFrame(self.asset_history)
+        df['date'] = pd.to_datetime(df['date'])
+        df['year'] = df['date'].dt.year
+        return df.groupby('year')['total_value'].last()
+
+# ===================== 今日网格操作建议 =====================
+def grid_signal_today(stock_data_dict, config):
+    today = datetime.now().strftime('%Y-%m-%d')
+    results = []
+    for symbol, df in stock_data_dict.items():
+        if len(df) < 3:
+            results.append({'symbol': symbol, 'alert': '数据不足3天，无法生成信号'})
+            continue
+        df = df.sort_values('time_key')
+        last_row = df.iloc[-1]
+        price = last_row['close']
+        # 以首日收盘为中轴
+        mid_price = df.iloc[0]['close']
+        grid_pct = config['grid_pct']
+        grid_size = config['grid_size']
+        grid_levels = [mid_price * (1 + grid_pct * (i - grid_size)) for i in range(2 * grid_size + 1)]
+        grid_levels = sorted(grid_levels)
+        action = 'NO_TRADE'
+        reason = ''
+        op_type = ''
+        trigger_price = None
+        for level in grid_levels:
+            if price <= level:
+                action = 'TRADE'
+                op_type = 'BUY'
+                reason = '触发买入网格'
+                trigger_price = level
+                break
+        if action == 'NO_TRADE':
+            for level in grid_levels:
+                if price >= level:
+                    action = 'TRADE'
+                    op_type = 'SELL'
+                    reason = '触发卖出网格'
+                    trigger_price = level
+                    break
+        if action == 'NO_TRADE':
+            reason = '未触发任何网格'
+        results.append({
+            'symbol': symbol,
+            'action': op_type if action == 'TRADE' else 'NO_TRADE',
+            'reason': reason,
+            'price': price,
+            'trigger_price': trigger_price
+        })
+    return results
+
+# ===================== 主流程 =====================
+if __name__ == "__main__":
+    config = read_config()
+    symbols = config['symbols']
+    stock_data_dict = {}
+    for symbol in symbols:
+        csv_file = get_csv_filename(symbol)
+        if os.path.exists(csv_file):
+            df = pd.read_csv(csv_file)
+            df['time_key'] = pd.to_datetime(df['time_key'])
+            stock_data_dict[symbol] = df
+        else:
+            print(f"未找到 {csv_file}，跳过该股票")
+    trader = GridTraderLite(stock_data_dict, CONFIG)
+    daily_report = trader.run_backtest()
+    print("\n===== 年报 =====")
+    print(trader.yearly_report())
+    print("\n===== 月报 =====")
+    print(trader.monthly_report())
+    print("\n===== 日报（最后5天） =====")
+    for r in daily_report[-5:]:
+        print(r)
+    print("\n===== 今日网格操作建议 =====")
+    today_signals = grid_signal_today(stock_data_dict, CONFIG)
+    for s in today_signals:
+        print(s)
