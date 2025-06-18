@@ -245,17 +245,21 @@ def push_to_wxwork(content, webhook_key):
 
 # ===================== 主流程 =====================
 if __name__ == "__main__":
-    def gen_and_push_signals(stock_data_dict, config, tmp_json_file, wxwork_key):
-        today_signals = grid_signal_today(stock_data_dict, config)
+    def gen_and_push_signals(stock_data_dict, grid_config, global_config, tmp_json_file, wxwork_key):
+        today_signals = grid_signal_today(stock_data_dict, grid_config)
         with open(tmp_json_file, 'w', encoding='utf-8') as f:
             import json
             json.dump(today_signals, f, ensure_ascii=False, indent=2)
         all_msgs = []
+        # 构建 symbol -> name 的映射
+        symbol_name_map = {s: n for s, n in zip(global_config.get('symbols', []), global_config.get('names', []))} if global_config.get('names') else {}
         for s in today_signals:
             buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
             sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
             trigger_price_str = f"{s['trigger_price']:.2f}" if s.get('trigger_price') not in (None, '') else ''
-            msg = f"**{s['symbol']}**\n操作: {s['action']}\n价格: {s['price']}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            symbol = s['symbol']
+            name = symbol_name_map.get(symbol, symbol)
+            msg = f"**{name}({symbol})**\n操作: {s['action']}\n价格: {s['price']}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key:
@@ -281,8 +285,8 @@ if __name__ == "__main__":
     # 更新股价数据
     fetch_and_save_k_line_data()
     # 读取配置和数据
-    config = read_config()
-    symbols = config['symbols']
+    global_config = read_config()
+    symbols = global_config['symbols']
     stock_data_dict = {}
     for symbol in symbols:
         csv_file = get_csv_filename(symbol)
@@ -294,12 +298,12 @@ if __name__ == "__main__":
             print(f"未找到 {csv_file}，跳过该股票")
 
     # 通过 config 控制运行模式
-    mode = config.get('mode', 'backtest')  # 'backtest' or 'signal'
+    mode = global_config.get('mode', 'backtest')  # 'backtest' or 'signal'
     if mode == 'backtest':
         run_backtest_and_report(stock_data_dict, GRID_CONFIG)
     elif mode == 'signal':
         import json
-        wxwork_key = config.get('wxwork_webhook_key')
+        wxwork_key = global_config.get('wxwork_webhook_key')
         tmp_json_file = 'q_grid_lite_tmp.json'
         today_str = datetime.now().strftime('%Y-%m-%d')
         # 检查所有股票最新数据日期是否为今天
@@ -320,11 +324,11 @@ if __name__ == "__main__":
             prev_date = prev_signals[0]['date'] if prev_signals and 'date' in prev_signals[0] else None
             if prev_date != today_str:
                 # 日期不是今天，重新生成今日信号并推送
-                gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
+                gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
             else:
                 # 日期是今天，检查是否触及未来三次SELL/BUY价
                 triggered = False
-                for symbol in config['symbols']:
+                for symbol in global_config['symbols']:
                     csv_file = get_csv_filename(symbol)
                     if os.path.exists(csv_file):
                         df = pd.read_csv(csv_file)
@@ -350,7 +354,7 @@ if __name__ == "__main__":
                 if triggered:
                     # 删除临时文件并生成新信号
                     os.remove(tmp_json_file)
-                    gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
+                    gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
         else:
             # 今日网格操作建议并推送到企业微信
-            gen_and_push_signals(stock_data_dict, GRID_CONFIG, tmp_json_file, wxwork_key)
+            gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
