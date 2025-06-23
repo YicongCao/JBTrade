@@ -178,12 +178,22 @@ def grid_signal_today(stock_data_dict, config):
         reason = ''
         op_type = ''
         trigger_price = None
+        desire = 0.0
+        # 计算交易欲望
         for level in grid_levels:
             if price <= level:
                 action = 'TRADE'
                 op_type = 'BUY'
                 reason = '触发买入网格'
                 trigger_price = level
+                # 欲望定义：距离网格线越近越大，最大为1，最远为0
+                # desire = max(0, min(1, (level - price) / (grid_pct * mid_price)))
+                # 归一化到0~1，level-price越小越接近1
+                grid_span = grid_pct * mid_price
+                if grid_span > 0:
+                    desire = max(0.0, min(1.0, (level - price) / grid_span))
+                else:
+                    desire = 0.0
                 break
         if action == 'NO_TRADE':
             for level in grid_levels:
@@ -192,9 +202,15 @@ def grid_signal_today(stock_data_dict, config):
                     op_type = 'SELL'
                     reason = '触发卖出网格'
                     trigger_price = level
+                    grid_span = grid_pct * mid_price
+                    if grid_span > 0:
+                        desire = max(0.0, min(1.0, (price - level) / grid_span))
+                    else:
+                        desire = 0.0
                     break
         if action == 'NO_TRADE':
             reason = '未触发任何网格'
+            desire = 0.0
         # 未来三次BUY: 低于当前价的最接近的3个网格线
         buy_prices = [level for level in grid_levels if level < price]
         buy_prices = buy_prices[:3] if len(buy_prices) >= 3 else buy_prices
@@ -209,6 +225,7 @@ def grid_signal_today(stock_data_dict, config):
             'trigger_price': trigger_price,
             'future_buy_prices': buy_prices,
             'future_sell_prices': sell_prices,
+            'desire': round(desire, 3),
             'date': today_str
         })
     return results
@@ -277,7 +294,13 @@ if __name__ == "__main__":
                 price_str = f'<font color="red">{price}</font>'
             else:
                 price_str = f'{price}'
-            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            # desire 字段
+            desire = s.get('desire', None)
+            if desire is not None:
+                desire_str = f"{desire:.3f}"
+            else:
+                desire_str = '-'
+            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n欲望: {desire_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key:
