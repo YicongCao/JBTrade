@@ -282,14 +282,29 @@ if __name__ == "__main__":
         # 构建 symbol -> name 的映射
         symbol_name_map = {s: n for s, n in zip(global_config.get('symbols', []), global_config.get('names', []))} if global_config.get('names') else {}
         for s in today_signals:
-            buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
-            sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
-            trigger_price_str = f"{s['trigger_price']:.2f}" if s.get('trigger_price') not in (None, '') else ''
+            trigger_price = s.get('trigger_price')
+            action = s['action']
+            # 未来三次BUY/SELL价高亮处理
+            buy_prices = s.get('future_buy_prices', [])
+            sell_prices = s.get('future_sell_prices', [])
+            buy_strs = []
+            for x in buy_prices:
+                if trigger_price is not None and abs(x - trigger_price) < 1e-6 and action == 'BUY':
+                    buy_strs.append(f'<font color="green">{x:.2f}</font>')
+                else:
+                    buy_strs.append(f'{x:.2f}')
+            buy_str = ', '.join(buy_strs) if buy_strs else '-'
+            sell_strs = []
+            for x in sell_prices:
+                if trigger_price is not None and abs(x - trigger_price) < 1e-6 and action == 'SELL':
+                    sell_strs.append(f'<font color="red">{x:.2f}</font>')
+                else:
+                    sell_strs.append(f'{x:.2f}')
+            sell_str = ', '.join(sell_strs) if sell_strs else '-'
             mid_price_str = f"{s['mid_price']:.3f}" if s.get('mid_price') is not None else '-'
             symbol = s['symbol']
             name = symbol_name_map.get(symbol, symbol)
             # 颜色处理
-            action = s['action']
             if action == 'BUY':
                 action_str = '<font color="green">BUY</font>'
             elif action == 'SELL':
@@ -306,13 +321,7 @@ if __name__ == "__main__":
                 price_str = f'<font color="red">{price}</font>'
             else:
                 price_str = f'{price}'
-            # desire 字段
-            desire = s.get('desire', None)
-            if desire is not None:
-                desire_str = f"{desire:.3f}"
-            else:
-                desire_str = '-'
-            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n中轴价: {mid_price_str}\n欲望: {desire_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            msg = f"**{name}({symbol})**\n操作: {action_str}\n现价: {price_str}    \t中轴价: {mid_price_str}\n原因: {s['reason']}\n未来几次BUY价: {buy_str}\n未来几次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key and do_push:
