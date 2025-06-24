@@ -12,7 +12,7 @@ GRID_CONFIG = {
     'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
     'adaptive_grid_N': 60,
-    'desire_threshold': 0.5,  # 交易欲望阈值，可配置
+    'desire_threshold': 0.2,  # 交易欲望阈值，可配置
 }
 
 # ===================== 网格交易核心类 =====================
@@ -185,7 +185,7 @@ def grid_signal_today(stock_data_dict, config):
         buy_levels = [level for level in grid_levels if level < mid_price]
         sell_levels = [level for level in grid_levels if level > mid_price]
         # BUY: 只遍历 buy_levels，找第一个大于等于 price 的 level
-        for level in reversed(buy_levels):  # 从高到低
+        for level in buy_levels:
             if price <= level:
                 grid_span = grid_pct * mid_price
                 if grid_span > 0:
@@ -205,7 +205,7 @@ def grid_signal_today(stock_data_dict, config):
                 break
         # SELL: 只遍历 sell_levels，找第一个小于等于 price 的 level
         if action == 'NO_TRADE':
-            for level in sell_levels:
+            for level in reversed(sell_levels):
                 if price >= level:
                     grid_span = grid_pct * mid_price
                     if grid_span > 0:
@@ -227,20 +227,14 @@ def grid_signal_today(stock_data_dict, config):
             if reason == '':
                 reason = '未触发任何网格'
             desire = 0.0
-        # 未来三次BUY: 低于当前价的最接近的3个网格线
-        buy_prices = [level for level in grid_levels if level < price]
-        buy_prices = buy_prices[:3] if len(buy_prices) >= 3 else buy_prices
-        # 未来三次SELL: 高于当前价的最接近的3个网格线
-        sell_prices = [level for level in grid_levels if level > price]
-        sell_prices = sell_prices[:3] if len(sell_prices) >= 3 else sell_prices
         results.append({
             'symbol': symbol,
             'action': op_type if action == 'TRADE' else 'NO_TRADE',
             'reason': reason,
             'price': price,
             'trigger_price': trigger_price,
-            'future_buy_prices': buy_prices,
-            'future_sell_prices': sell_prices,
+            'future_buy_prices': buy_levels,
+            'future_sell_prices': sell_levels,
             'desire': round(desire, 3),
             'mid_price': round(mid_price, 3),
             'date': today_str
