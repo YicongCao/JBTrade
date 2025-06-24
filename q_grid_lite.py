@@ -443,7 +443,7 @@ if __name__ == "__main__":
                                     price_str = f'{latest_price}'
                                 # 原因
                                 reason = prev.get('reason', '-')
-                                msg = f"**{name}({symbol})**\n操作: {action_str}\n现价: {price_str}    \t中轴价: {mid_price_str}\n原因: {reason}\n未来几次BUY价: {buy_str}\n未来几次SELL价: {sell_str}"
+                                msg = f"**{name}({symbol})**\n操作: {action_str}\n现价: {price_str}    \t中轴价: {mid_price_str}\n未来几次BUY价: {buy_str}\n未来几次SELL价: {sell_str}"
                                 print(msg)
                                 if wxwork_key:
                                     push_to_wxwork(msg, wxwork_key)
