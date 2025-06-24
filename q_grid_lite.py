@@ -11,7 +11,7 @@ GRID_CONFIG = {
     'grid_size': 4,   
     'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
-    'adaptive_grid_N': 60,
+    'adaptive_grid_N': 50,
     'desire_threshold': 0.2,  # 交易欲望阈值，可配置
 }
 
@@ -388,7 +388,7 @@ if __name__ == "__main__":
                 # 日期不是今天，重新生成今日信号并推送
                 gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
             else:
-                # 日期是今天，检查是否触及未来三次SELL/BUY价
+                # 日期是今天，检查是否触及未来几次SELL/BUY价
                 triggered = False
                 for symbol in global_config['symbols']:
                     csv_file = get_csv_filename(symbol)
@@ -402,13 +402,48 @@ if __name__ == "__main__":
                             sell_hit = [x for x in prev.get('future_sell_prices', []) if latest_price >= x]
                             buy_hit = [x for x in prev.get('future_buy_prices', []) if latest_price <= x]
                             if sell_hit or buy_hit:
-                                buy_str = ', '.join([f'{x:.2f}' for x in prev.get('future_buy_prices', [])]) if prev.get('future_buy_prices') else '-'
-                                sell_str = ', '.join([f'{x:.2f}' for x in prev.get('future_sell_prices', [])]) if prev.get('future_sell_prices') else '-'
-                                msg = f"**{symbol}**\n最新价: {latest_price}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+                                # 构建推送内容，参考主推送样式
+                                name = symbol
+                                if global_config.get('names') and symbol in global_config.get('symbols'):
+                                    idx = global_config['symbols'].index(symbol)
+                                    name = global_config['names'][idx] if idx < len(global_config['names']) else symbol
+                                mid_price = prev.get('mid_price', '-')
+                                mid_price_str = f"{mid_price:.3f}" if isinstance(mid_price, (float, int)) else '-'
+                                # BUY/SELL价高亮
+                                buy_prices = prev.get('future_buy_prices', [])
+                                sell_prices = prev.get('future_sell_prices', [])
+                                # 高亮触发价
+                                buy_strs = []
+                                for x in buy_prices:
+                                    if buy_hit and any(abs(x - h) < 1e-6 for h in buy_hit):
+                                        buy_strs.append(f'<font color="green">{x:.2f}</font>')
+                                    else:
+                                        buy_strs.append(f'{x:.2f}')
+                                buy_str = ', '.join(buy_strs) if buy_strs else '-'
+                                sell_strs = []
+                                for x in sell_prices:
+                                    if sell_hit and any(abs(x - h) < 1e-6 for h in sell_hit):
+                                        sell_strs.append(f'<font color="red">{x:.2f}</font>')
+                                    else:
+                                        sell_strs.append(f'{x:.2f}')
+                                sell_str = ', '.join(sell_strs) if sell_strs else '-'
+                                # 操作类型
                                 if buy_hit:
-                                    msg += f"\n已触及BUY价: {', '.join([f'{x:.2f}' for x in buy_hit])}"
-                                if sell_hit:
-                                    msg += f"\n已触及SELL价: {', '.join([f'{x:.2f}' for x in sell_hit])}"
+                                    action_str = '<font color="green">BUY</font>'
+                                elif sell_hit:
+                                    action_str = '<font color="red">SELL</font>'
+                                else:
+                                    action_str = '<font color="gray">NO_TRADE</font>'
+                                # 价格颜色
+                                if buy_hit:
+                                    price_str = f'<font color="green">{latest_price}</font>'
+                                elif sell_hit:
+                                    price_str = f'<font color="red">{latest_price}</font>'
+                                else:
+                                    price_str = f'{latest_price}'
+                                # 原因
+                                reason = prev.get('reason', '-')
+                                msg = f"**{name}({symbol})**\n操作: {action_str}\n现价: {price_str}    \t中轴价: {mid_price_str}\n原因: {reason}\n未来几次BUY价: {buy_str}\n未来几次SELL价: {sell_str}"
                                 print(msg)
                                 if wxwork_key:
                                     push_to_wxwork(msg, wxwork_key)
