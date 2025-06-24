@@ -274,7 +274,7 @@ def push_to_wxwork(content, webhook_key):
 
 # ===================== 主流程 =====================
 if __name__ == "__main__":
-    def gen_and_push_signals(stock_data_dict, grid_config, global_config, tmp_json_file, wxwork_key):
+    def gen_and_push_signals(stock_data_dict, grid_config, global_config, tmp_json_file, wxwork_key, do_push=True):
         today_signals = grid_signal_today(stock_data_dict, grid_config)
         with open(tmp_json_file, 'w', encoding='utf-8') as f:
             import json
@@ -315,7 +315,7 @@ if __name__ == "__main__":
             msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n欲望: {desire_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
-        if wxwork_key:
+        if wxwork_key and do_push:
             full_msg = '\n\n'.join(all_msgs)
             def split_by_bytes(s, max_bytes=1950):
                 res = []
@@ -407,7 +407,7 @@ if __name__ == "__main__":
                 if triggered:
                     # 删除临时文件并生成新信号
                     os.remove(tmp_json_file)
-                    gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
+                    gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key, do_push=False)
         else:
             # 今日网格操作建议并推送到企业微信
             gen_and_push_signals(stock_data_dict, GRID_CONFIG, global_config, tmp_json_file, wxwork_key)
