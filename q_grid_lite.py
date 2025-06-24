@@ -7,11 +7,12 @@ from update_k_line_hist import fetch_and_save_k_line_data
 
 GRID_CONFIG = {
     'initial_cash': 1000000,
-    'grid_pct': 0.04, 
-    'grid_size': 4,   
+    'grid_pct': 0.05, 
+    'grid_size': 5,   
     'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
     'adaptive_grid_N': 60,
+    'desire_threshold': 0.5,  # 交易欲望阈值，可配置
 }
 
 # ===================== 网格交易核心类 =====================
@@ -157,6 +158,7 @@ class GridTraderLite:
 def grid_signal_today(stock_data_dict, config):
     results = []
     today_str = datetime.now().strftime('%Y-%m-%d')
+    desire_threshold = config.get('desire_threshold', 0.5)
     for symbol, df in stock_data_dict.items():
         if len(df) < 3:
             results.append({'symbol': symbol, 'alert': '数据不足3天，无法生成信号'})
@@ -165,7 +167,7 @@ def grid_signal_today(stock_data_dict, config):
         last_row = df.iloc[-1]
         price = last_row['close']
         # 用最近N日均价作为自适应网格中轴
-        N = config.get('adaptive_grid_N', 5)
+        N = config.get('adaptive_grid_N', 60)
         if len(df) >= N:
             mid_price = df['close'].iloc[-N:].mean()
         else:
@@ -182,34 +184,44 @@ def grid_signal_today(stock_data_dict, config):
         # 计算交易欲望
         for level in grid_levels:
             if price <= level:
-                action = 'TRADE'
-                op_type = 'BUY'
-                reason = '触发买入网格'
-                trigger_price = level
-                # 欲望定义：距离网格线越近越大，最大为1，最远为0
-                # desire = max(0, min(1, (level - price) / (grid_pct * mid_price)))
-                # 归一化到0~1，level-price越小越接近1
                 grid_span = grid_pct * mid_price
                 if grid_span > 0:
                     desire = max(0.0, min(1.0, (level - price) / grid_span))
                 else:
                     desire = 0.0
+                if desire > desire_threshold:
+                    action = 'TRADE'
+                    op_type = 'BUY'
+                    reason = '触发买入网格'
+                    trigger_price = level
+                else:
+                    action = 'NO_TRADE'
+                    op_type = ''
+                    reason = '欲望不足，不执行买入'
+                    trigger_price = level
                 break
         if action == 'NO_TRADE':
             for level in grid_levels:
                 if price >= level:
-                    action = 'TRADE'
-                    op_type = 'SELL'
-                    reason = '触发卖出网格'
-                    trigger_price = level
                     grid_span = grid_pct * mid_price
                     if grid_span > 0:
                         desire = max(0.0, min(1.0, (price - level) / grid_span))
                     else:
                         desire = 0.0
+                    if desire > desire_threshold:
+                        action = 'TRADE'
+                        op_type = 'SELL'
+                        reason = '触发卖出网格'
+                        trigger_price = level
+                    else:
+                        action = 'NO_TRADE'
+                        op_type = ''
+                        reason = '欲望不足，不执行卖出'
+                        trigger_price = level
                     break
         if action == 'NO_TRADE':
-            reason = '未触发任何网格'
+            if reason == '':
+                reason = '未触发任何网格'
             desire = 0.0
         # 未来三次BUY: 低于当前价的最接近的3个网格线
         buy_prices = [level for level in grid_levels if level < price]
