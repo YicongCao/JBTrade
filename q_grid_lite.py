@@ -238,6 +238,7 @@ def grid_signal_today(stock_data_dict, config):
             'future_buy_prices': buy_prices,
             'future_sell_prices': sell_prices,
             'desire': round(desire, 3),
+            'mid_price': round(mid_price, 3),
             'date': today_str
         })
     return results
@@ -286,6 +287,7 @@ if __name__ == "__main__":
             buy_str = ', '.join([f'{x:.2f}' for x in s.get('future_buy_prices', [])]) if s.get('future_buy_prices') else '-'
             sell_str = ', '.join([f'{x:.2f}' for x in s.get('future_sell_prices', [])]) if s.get('future_sell_prices') else '-'
             trigger_price_str = f"{s['trigger_price']:.2f}" if s.get('trigger_price') not in (None, '') else ''
+            mid_price_str = f"{s['mid_price']:.3f}" if s.get('mid_price') is not None else '-'
             symbol = s['symbol']
             name = symbol_name_map.get(symbol, symbol)
             # 颜色处理
@@ -312,7 +314,7 @@ if __name__ == "__main__":
                 desire_str = f"{desire:.3f}"
             else:
                 desire_str = '-'
-            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n欲望: {desire_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
+            msg = f"**{name}({symbol})**\n操作: {action_str}\n价格: {price_str}\n中轴价: {mid_price_str}\n欲望: {desire_str}\n原因: {s['reason']}\n触发网格价: {trigger_price_str}\n未来三次BUY价: {buy_str}\n未来三次SELL价: {sell_str}"
             print(msg)
             all_msgs.append(msg)
         if wxwork_key and do_push:
