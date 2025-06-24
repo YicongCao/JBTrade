@@ -7,8 +7,8 @@ from update_k_line_hist import fetch_and_save_k_line_data
 
 GRID_CONFIG = {
     'initial_cash': 1000000,
-    'grid_pct': 0.05, 
-    'grid_size': 5,   
+    'grid_pct': 0.04, 
+    'grid_size': 4,   
     'per_grid_cash': 50000,
     'max_position_ratio': 0.3,
     'adaptive_grid_N': 60,
@@ -181,8 +181,11 @@ def grid_signal_today(stock_data_dict, config):
         op_type = ''
         trigger_price = None
         desire = 0.0
-        # 计算交易欲望
-        for level in grid_levels:
+        # 分别处理 BUY/SELL 区间
+        buy_levels = [level for level in grid_levels if level < mid_price]
+        sell_levels = [level for level in grid_levels if level > mid_price]
+        # BUY: 只遍历 buy_levels，找第一个大于等于 price 的 level
+        for level in reversed(buy_levels):  # 从高到低
             if price <= level:
                 grid_span = grid_pct * mid_price
                 if grid_span > 0:
@@ -200,8 +203,9 @@ def grid_signal_today(stock_data_dict, config):
                     reason = '欲望不足，不执行买入'
                     trigger_price = level
                 break
+        # SELL: 只遍历 sell_levels，找第一个小于等于 price 的 level
         if action == 'NO_TRADE':
-            for level in grid_levels:
+            for level in sell_levels:
                 if price >= level:
                     grid_span = grid_pct * mid_price
                     if grid_span > 0:
