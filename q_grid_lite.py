@@ -390,6 +390,23 @@ if __name__ == "__main__":
             else:
                 # 日期是今天，检查是否触及未来几次SELL/BUY价
                 triggered = False
+                import json
+                from datetime import datetime
+                signal_count_file = 'signal_count.json'
+                today_str = datetime.now().strftime('%Y-%m-%d')
+                # 读取外部文件
+                if os.path.exists(signal_count_file):
+                    with open(signal_count_file, 'r', encoding='utf-8') as f:
+                        try:
+                            signal_count_data = json.load(f)
+                        except Exception:
+                            signal_count_data = {}
+                else:
+                    signal_count_data = {}
+                # 只保留当天的
+                if signal_count_data.get('date') != today_str:
+                    signal_count_data = {'date': today_str, 'counts': {}}
+                counts = signal_count_data['counts']
                 for symbol in global_config['symbols']:
                     csv_file = get_csv_filename(symbol)
                     if os.path.exists(csv_file):
@@ -401,6 +418,21 @@ if __name__ == "__main__":
                         if prev:
                             sell_hit = [x for x in prev.get('future_sell_prices', []) if latest_price >= x]
                             buy_hit = [x for x in prev.get('future_buy_prices', []) if latest_price <= x]
+                            # 统计信号类型
+                            signal_type = None
+                            if buy_hit:
+                                signal_type = 'BUY'
+                            elif sell_hit:
+                                signal_type = 'SELL'
+                            if signal_type:
+                                key = f"{symbol}_{signal_type}"
+                                counts[key] = counts.get(key, 0) + 1
+                                # 写回外部文件
+                                signal_count_data['counts'] = counts
+                                with open(signal_count_file, 'w', encoding='utf-8') as f:
+                                    json.dump(signal_count_data, f, ensure_ascii=False, indent=2)
+                                if counts[key] > 3:
+                                    continue  # 超过3次不推送
                             if sell_hit or buy_hit:
                                 # 构建推送内容，参考主推送样式
                                 name = symbol
