@@ -367,15 +367,18 @@ if __name__ == "__main__":
         import json
         wxwork_key = global_config.get('wxwork_webhook_key')
         tmp_json_file = 'q_grid_lite_tmp.json'
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        # 检查所有股票最新数据日期是否为今天
+        today = datetime.now().date()
+        yesterday = (datetime.now() - pd.Timedelta(days=1)).date()
+        today_str = today.strftime('%Y-%m-%d')
+        yesterday_str = yesterday.strftime('%Y-%m-%d')
+        # 非交易日或数据未更新到今日/昨日
         latest_dates = []
         for symbol, df in stock_data_dict.items():
             if not df.empty:
                 latest_date = df.sort_values('time_key').iloc[-1]['time_key'].strftime('%Y-%m-%d')
                 latest_dates.append(latest_date)
-        if not latest_dates or any(d != today_str for d in latest_dates):
-            print(f"非交易日或数据未更新到今日({today_str})，程序自动退出。")
+        if not latest_dates or any(d not in (today_str, yesterday_str) for d in latest_dates):
+            print(f"非交易日或数据未更新到今日({today_str})或昨日({yesterday_str})，程序自动退出。")
             import sys
             sys.exit(0)
         # 检查是否有临时信号文件
