@@ -3,30 +3,61 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import os
-from utils import get_csv_filename, get_last_date_from_csv, read_config  # 修改导入
+from utils import get_csv_filename, get_last_date_from_csv, read_config
+import akshare as ak
+
 
 def fetch_k_line_data(symbol, start_date, end_date):
-    quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)  # 根据实际配置修改
-    try:
-        ret, data, page_req_key = quote_ctx.request_history_kline(
-            code=symbol,
-            start=start_date,
-            end=end_date,
-            ktype=KLType.K_DAY,  # 日线
-            max_count=1000,  # 足够大的数值确保获取全部数据
-        )
-        if ret == RET_OK:
-            df = pd.DataFrame(data)
-            df['time_key'] = pd.to_datetime(df['time_key'])
-            return df
-        else:
-            print("获取数据失败:", data)
+    if symbol.startswith('HK.'):
+        # 港股用 futu
+        quote_ctx = OpenQuoteContext(host='127.0.0.1', port=11111)  # 根据实际配置修改
+        try:
+            ret, data, page_req_key = quote_ctx.request_history_kline(
+                code=symbol,
+                start=start_date,
+                end=end_date,
+                ktype=KLType.K_DAY,  # 日线
+                max_count=1000,  # 足够大的数值确保获取全部数据
+            )
+            if ret == RET_OK:
+                df = pd.DataFrame(data)
+                df['time_key'] = pd.to_datetime(df['time_key'])
+                return df
+            else:
+                print("获取数据失败:", data)
+                return None
+        except Exception as e:
+            print("发生错误:", str(e))
             return None
-    except Exception as e:
-        print("发生错误:", str(e))
+        finally:
+            quote_ctx.close()
+    elif symbol.startswith('US.'):
+        # 美股用 akshare
+        code = symbol[3:]
+        try:
+            # akshare 美股日K
+            df = ak.stock_us_daily(symbol=code)
+            # akshare 返回的日期格式为 yyyyMMdd，需转为 yyyy-mm-dd
+            df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+            df = df[(df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))]
+            # 统一列名
+            df = df.rename(columns={
+                'date': 'time_key',
+                'open': 'open',
+                'close': 'close',
+                'high': 'high',
+                'low': 'low',
+                'volume': 'volume',
+            })
+            # 只保留需要的列
+            df = df[['time_key', 'open', 'close', 'high', 'low', 'volume']]
+            return df
+        except Exception as e:
+            print(f"akshare 获取美股数据失败: {symbol}, 错误: {e}")
+            return None
+    else:
+        print(f"不支持的股票代码格式: {symbol}")
         return None
-    finally:
-        quote_ctx.close()
 
 def save_k_line_data(df, csv_filename):
     if os.path.exists(csv_filename):
