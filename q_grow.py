@@ -71,19 +71,22 @@ def calc_support_price(df, window=20):
 
 def analyze_grow_trend(stock_data_dict, config, grow_config=GROW_CONFIG):
     results = []
+    # 构建 symbol -> name 的映射
+    symbol_name_map = {s: n for s, n in zip(config.get('symbols', []), config.get('names', []))} if config.get('names') else {}
     for symbol, df in stock_data_dict.items():
+        name = symbol_name_map.get(symbol, symbol)
         if len(df) < 25:
-            results.append(f"{symbol}: 数据不足，无法判断趋势")
+            results.append(f"{name}({symbol}): 数据不足，无法判断趋势")
             continue
         uptrend, strength, recent = detect_bollinger_uptrend(df, config=grow_config)
         # 支撑价
         support = calc_support_price(df, window=grow_config['boll_window'])
         cur_price = df['close'].iloc[-1]
-        support_str = f"{cur_price:.2f}/{support:.2f}" if support else "-"
+        support_str = f"{cur_price:.2f} / {support:.2f}" if support else "-"
         if uptrend:
-            results.append(f"**{symbol}** 检测到布林线上升趋势，强度: <font color='red'>{strength}</font>，当前价/支撑价: {support_str}")
+            results.append(f"**{name}({symbol})**检测到上升趋势，强度: <font color='red'>{strength}</font>，当前价/支撑价: {support_str}")
         else:
-            results.append(f"{symbol}: 没有产生上升趋势 (布林线强度: {strength})，当前价/支撑价: {support_str}")
+            results.append(f"{name}({symbol}): 没有产生上升趋势，强度: {strength}，当前价/支撑价: {support_str}")
     return results
 
 if __name__ == "__main__":
@@ -104,7 +107,7 @@ if __name__ == "__main__":
     # 分析趋势并推送
     results = analyze_grow_trend(stock_data_dict, global_config, GROW_CONFIG)
     wxwork_key = global_config.get('wxwork_webhook_key')
-    msg = '\n'.join(results)
+    msg = '**布林线趋势分析**\n' + '\n'.join(results)
     print(msg)
     if wxwork_key:
         push_to_wxwork(msg, wxwork_key)
